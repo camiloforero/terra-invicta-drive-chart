@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { loadDataFromVersion, getDataForConfig } from '@/core/main'
+import { loadDataFromVersion, getDataForOptions } from '@/core/main'
 
 await loadDataFromVersion('0.3.107')
-const driveData = getDataForConfig()
+const driveData = getDataForOptions({})
 </script>
 
 <template>

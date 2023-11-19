@@ -1,4 +1,4 @@
-import { groupBy } from 'lodash-es'
+import { groupBy, keyBy } from 'lodash-es'
 
 // TypeScript stuff. Useful for IDE autocomplete and to check things here instead of the raw JSON files
 interface MaterialCostSet {
@@ -25,7 +25,8 @@ interface Drive {
 
   power?: number
   totalMass?: number
-  powerPlantValues?: DerivedDrivePowerPlantValue
+  powerPlantValues?: DerivedDrivePowerPlantValues
+  selectedOptionValues?: DerivedOptionsValues
 }
 
 interface PowerPlant {
@@ -40,11 +41,23 @@ interface DrivePowerPlantPairing {
 }
 
 interface Radiator {
+  dataName: string
+  friendlyName: string
+  specificPower_2s_KWkg: number
+  crew: number
 }
 
-interface DerivedDrivePowerPlantValue {
+interface DerivedDrivePowerPlantValues {
   powerPlantMass: number
   wasteHeat: number
+}
+interface DerivedOptionsValues {
+  radiatorMass: number
+  dryMass: number
+  fuelMass: number
+  wetMass: number
+  deltaV: number
+  accel: number
 }
 
 interface BestPowerPlantsDict {
@@ -52,10 +65,11 @@ interface BestPowerPlantsDict {
 }
 
 interface OptionsObject {
-  payload: number
-  radiator: string
-  hydrogen: string
-  spiker: string
+  payload?: number
+  radiatorName?: string
+  numFuelTanks?: number
+  hydrogen?: string
+  spiker?: string
 }
 
 // Raw imported JSON data for a game version. Keep it in-memory so later recalculations are more efficient
@@ -66,6 +80,7 @@ let rawRadiatorData: Radiator[]
 // Preprocessed data
 let processedDrivePowerPlantData: DrivePowerPlantPairing[]
 let bestPowerPlants: BestPowerPlantsDict
+let radiatorDict: {[key: string]: Radiator}
 // Partially processed data for relevant drive/power plant pairings.
 // As much as can be done without accounting for radiators and modules
 
@@ -86,8 +101,36 @@ export async function loadDataFromVersion(version: string) {
 }
 
 // Return calculated data for a given set of options
-export function getDataForConfig() {
-  return processedDrivePowerPlantData
+export function getDataForOptions({ payload = 2000, radiatorName = "TinDroplet", numFuelTanks = 10, hydrogen, spiker }: OptionsObject = {}) {
+  const radiator = radiatorDict[radiatorName]
+  const tonsPerWasteHeat = 1e3 / radiator.specificPower_2s_KWkg
+  return processedDrivePowerPlantData.map((pairing) => {
+    const drives = pairing.drives.map((drive) => {
+      if (drive.powerPlantValues == null) return drive
+      
+      const radiatorMass = drive.powerPlantValues!.wasteHeat * tonsPerWasteHeat * (1/1e9)
+      const dryMass = drive.totalMass! + drive.powerPlantValues!.powerPlantMass + radiatorMass + payload
+      const fuelMass = numFuelTanks * 100
+      const wetMass = dryMass + fuelMass
+
+      // TODO: extra calculations for the different kinds of hydrogen storage and spikers
+      // The goods!
+      const deltaV = drive.EV_kps * Math.log(wetMass/dryMass)
+      const accel = (drive.thrust_N * drive.thrustCap / wetMass) / 9.81
+      return {
+        ...drive,
+        selectedOptionValues: {
+          radiatorMass,
+          dryMass,
+          fuelMass,
+          wetMass,
+          deltaV,
+          accel,
+        }
+      }
+    })
+    return { ...pairing, drives }
+  })
 }
 
 
@@ -98,6 +141,9 @@ function preprocess() {
   bestPowerPlants = filterBestPowerPlants(rawPowerPlantData);
   // Removes the last two characters of each drive (the multiplier) and groups them by the raw value
   const normalizedDrives = groupBy(rawDriveData, (drive) => drive.dataName.slice(0, -2))
+
+  // Turn radiator array into hash
+  radiatorDict = keyBy(rawRadiatorData, 'dataName')
 
   // Pair every reactor group with its best drive
   processedDrivePowerPlantData = Object.entries(normalizedDrives).map(([_, drives]) => {
