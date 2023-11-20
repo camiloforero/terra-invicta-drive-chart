@@ -35,7 +35,7 @@ interface PowerPlant {
   specificPower_tGW: number
 }
 
-interface DrivePowerPlantPairing {
+export interface DrivePowerPlantPairing {
   drives: Drive[]
   powerPlant: PowerPlant
 }
