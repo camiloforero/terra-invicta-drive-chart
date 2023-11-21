@@ -6,9 +6,13 @@ interface MaterialCostSet {
   volatiles?: number
 }
 
-interface Drive {
+interface Component {
   dataName: string
   friendlyName: string
+}
+
+interface Drive extends Component {
+  dataName: string
   driveClassification: string
   thrust_N: number
   EV_kps: number
@@ -29,7 +33,7 @@ interface Drive {
   selectedOptionValues?: DerivedOptionsValues
 }
 
-interface PowerPlant {
+interface PowerPlant extends Component {
   powerPlantClass: string
   efficiency: number
   specificPower_tGW: number
@@ -65,11 +69,12 @@ interface BestPowerPlantsDict {
 }
 
 interface OptionsObject {
-  payload?: number
-  radiatorName?: string
-  numFuelTanks?: number
-  hydrogen?: string
-  spiker?: string
+  payload: number
+  radiatorName: string
+  numFuelTanks: number
+  defaultPowerPlantName: string
+  hydrogen: string | null
+  spiker: string | null
 }
 
 // Raw imported JSON data for a game version. Keep it in-memory so later recalculations are more efficient
@@ -78,7 +83,12 @@ let rawPowerPlantData: PowerPlant[]
 let rawRadiatorData: Radiator[]
 
 // Preprocessed data
+// Drives that have a "best" power plant, selectable in the preprocessing step
 let processedDrivePowerPlantData: DrivePowerPlantPairing[]
+// Drives that can be paired with any power plant, which must be specified by the user
+let reactorlessDriveData: DrivePowerPlantPairing[]
+let processedReactorlessDrives: DrivePowerPlantPairing[]
+// Best power plants per type
 let bestPowerPlants: BestPowerPlantsDict
 let radiatorDict: {[key: string]: Radiator}
 // Partially processed data for relevant drive/power plant pairings.
@@ -101,10 +111,18 @@ export async function loadDataFromVersion(version: string) {
 }
 
 // Return calculated data for a given set of options
-export function getDataForOptions({ payload = 2000, radiatorName = "TinDroplet", numFuelTanks = 10, hydrogen, spiker }: OptionsObject = {}) {
+export function getDataForOptions({ payload, radiatorName, numFuelTanks, defaultPowerPlantName, hydrogen, spiker }: OptionsObject) {
+  // First use the provided default power plant to process the drives that don't require an specific one
+  const defaultPowerPlant = findByDataName(rawPowerPlantData, defaultPowerPlantName)!
+
+  processedReactorlessDrives = reactorlessDriveData.map((pairing) => {
+    pairing.drives = deriveValuesInDrivesForPowerPlant(pairing.drives, defaultPowerPlant) as Drive[]
+    return pairing
+  })
+
   const radiator = radiatorDict[radiatorName]
   const tonsPerWasteHeat = 1e3 / radiator.specificPower_2s_KWkg
-  return processedDrivePowerPlantData.map((pairing) => {
+  return [...processedDrivePowerPlantData, ...processedReactorlessDrives].map((pairing) => {
     const drives = pairing.drives.map((drive) => {
       if (drive.powerPlantValues == null) return drive
       
@@ -146,14 +164,22 @@ function preprocess() {
   radiatorDict = keyBy(rawRadiatorData, 'dataName')
 
   // Pair every reactor group with its best drive
-  processedDrivePowerPlantData = Object.entries(normalizedDrives).map(([_, drives]) => {
+  const drivesWithReactor = <DrivePowerPlantPairing[]>[]
+  const drivesWithoutReactor = <DrivePowerPlantPairing[]>[]
+  Object.entries(normalizedDrives).forEach(([_, drives]) => {
     const powerPlant = bestPowerPlants[drives[0].requiredPowerPlant]
-    drives.forEach((drive) => setDerivedValuesInDriveForPowerPlant(drive, powerPlant))
-    return {
-      drives,
-      powerPlant,
+    if (powerPlant) {
+      drivesWithReactor.push({
+        drives: deriveValuesInDrivesForPowerPlant(drives, powerPlant) as Drive[],
+        powerPlant,
+      })
+    }
+    else {
+      drivesWithoutReactor.push({ drives, powerPlant })
     }
   })
+  processedDrivePowerPlantData = drivesWithReactor
+  reactorlessDriveData = drivesWithoutReactor
 }
 
 function filterBestPowerPlants(rawPowerPlantData: PowerPlant[]) {
@@ -163,50 +189,54 @@ function filterBestPowerPlants(rawPowerPlantData: PowerPlant[]) {
   // One exception is Gas Core III to Terawatt Gas Core I, but...
   // ... Terawatt Gas Core II is still better than both of them, so it doesn't matter.
   // TODO: do the thing where I pair early gas core drives with vanilla Gas Core reactor
-  const bestPowerPlants = <BestPowerPlantsDict>{}
-  rawPowerPlantData.forEach((powerPlant) => {
+  return rawPowerPlantData.reduce((acc, powerPlant) => {
     const { powerPlantClass } = powerPlant
-    const currentBestPP = bestPowerPlants[powerPlantClass]
+    const currentBestPP = acc[powerPlantClass]
     if (
       currentBestPP == null ||
       (currentBestPP && currentBestPP.efficiency < powerPlant.efficiency)
     ) {
-      bestPowerPlants[powerPlantClass] = powerPlant
+      acc[powerPlantClass] = powerPlant
     }
-  })
-  return bestPowerPlants
+    return acc
+  }, <BestPowerPlantsDict>{})
 }
 
 // Use Sarah's formulae to get derived values
-function setDerivedValuesInDriveForPowerPlant(drive: Drive, powerPlant: PowerPlant) {
-  // Sets processed drive values inside the drive object
-  const power = (0.5 * drive.thrust_N * 1000 * drive.EV_kps)
-  const totalMass =
-    drive.flatMass_tons + // The mass of the drive itself
-    power * drive.specificPower_kgMW * (1/1e6) * (1/1e3) // Some drives use this calculation instead
+function deriveValuesInDrivesForPowerPlant(drives: Drive[], powerPlant: PowerPlant) {
+  console.log(powerPlant)
+  return drives.map((drive) => {
+    // Sets processed drive values inside the drive object
+    const power = (0.5 * drive.thrust_N * 1000 * drive.EV_kps)
+    const totalMass =
+      drive.flatMass_tons + // The mass of the drive itself
+      power * drive.specificPower_kgMW * (1/1e6) * (1/1e3) // Some drives use this calculation instead
 
-  drive.power = power
-  drive.totalMass = totalMass
+    drive.power = power
+    drive.totalMass = totalMass
 
-  // Sets processed values from the interaction between a drive and the current power plant
-  if (powerPlant == null) return
-
-  let powerPlantMass = 0
-  if(!['Chemical', 'Fission_Pulse'].includes(drive.driveClassification)) {
-    powerPlantMass += power * powerPlant.specificPower_tGW * (1/1e9)
-  }
-
-  let wasteHeat = 0
+    // Sets processed values from the interaction between a drive and the current power plant
+    let powerPlantMass = 0
+    if(!['Chemical', 'Fission_Pulse'].includes(drive.driveClassification)) {
+      powerPlantMass += power * powerPlant.specificPower_tGW * (1/1e9)
+    }
   
-  if(['Closed', 'Calc'].includes(drive.cooling)) {
-    wasteHeat += power * (1 - powerPlant.efficiency)
-  }
-  else if(drive.cooling == 'Open') {
-    // No waste heat
-  } else throw new Error(`Unsupported cooling type ${drive.cooling}`)
+    let wasteHeat = 0
 
-  drive.powerPlantValues = {
-    powerPlantMass,
-    wasteHeat,
-  }
+    if(['Closed', 'Calc'].includes(drive.cooling)) {
+      wasteHeat += power * (1 - powerPlant.efficiency)
+    }
+    else if(drive.cooling == 'Open') {
+      // No waste heat
+    } else throw new Error(`Unsupported cooling type ${drive.cooling}`)
+
+    return { ...drive, powerPlantValues: {
+      powerPlantMass,
+      wasteHeat,
+    }  }
+  })
+}
+
+function findByDataName<T extends Component>(componentArray: T[], dataName: string) {
+  return componentArray.find((c) => c.dataName == dataName)
 }

@@ -17,3 +17,9 @@ npm install
 ```sh
 npm run dev
 ```
+### Build
+
+The build will be generated in the `/dist` folder
+```sh
+npm run build
+```

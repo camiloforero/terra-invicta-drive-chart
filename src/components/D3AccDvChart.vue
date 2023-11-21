@@ -26,7 +26,7 @@ const props = defineProps<{
 }>()
 
 // constants
-const WIDTH = 800
+const WIDTH = 900
 const HEIGHT = 600
 const MARGIN_TOP = 25;
 const MARGIN_RIGHT = 20;
@@ -40,11 +40,11 @@ const END_Y = MARGIN_TOP
 
 // Create the scales
 const x = d3.scaleLog()
-  .domain([1, 1e4])
+  .domain([0.1, 5 * 1e4])
   .range([START_X, END_X])
 
 const y = d3.scaleLog()
-  .domain([0.5, 1e5])
+  .domain([0.05, 1e5])
   .range([START_Y, END_Y])
 
 //scale for colors per drive type
