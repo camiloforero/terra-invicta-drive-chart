@@ -13,7 +13,7 @@
 import * as d3 from "d3";
 import { onMounted, watch } from "vue";
 
-import type { DrivePowerPlantPairing } from "@/core/main";
+import type { Drive, PowerPlant } from "@/core/main";
 
 ///
 /// Vue Config
@@ -21,13 +21,17 @@ import type { DrivePowerPlantPairing } from "@/core/main";
 // References to the HTML elements to be manipulated
 
 // Vue scaffolding
+interface Pairing {
+  drive: Drive
+  powerPlant: PowerPlant
+}
 const props = defineProps<{
-  data: DrivePowerPlantPairing[]
+  data: Pairing[]
 }>()
 
 // constants
 const WIDTH = 900
-const HEIGHT = 600
+const HEIGHT = 700
 const MARGIN_TOP = 25;
 const MARGIN_RIGHT = 20;
 const MARGIN_BOTTOM = 35;
@@ -37,6 +41,10 @@ const START_X = MARGIN_LEFT
 const END_X = WIDTH - MARGIN_RIGHT
 const START_Y = HEIGHT - MARGIN_BOTTOM
 const END_Y = MARGIN_TOP
+
+
+// Deal with dark mode
+const mode =matchMedia("(prefers-color-scheme: dark)")
 
 // Create the scales
 const x = d3.scaleLog()
@@ -64,16 +72,31 @@ onMounted(() => {
   render(props.data)
 })
 
-function render(data: DrivePowerPlantPairing[]) {
+
+
+function render(data: Pairing[]) {
+  const dataPoints = 
   d3.select('#d3AccDvG')
     .selectAll('circle')
     .data(data)
     .join('circle')
-    .attr('cx', (d) => x(d.drives[0].selectedOptionValues?.deltaV!))
-    .attr('cy', (d) => y(d.drives[0].selectedOptionValues?.accel!))
+    .attr('cx', (d) => x(d.drive.selectedOptionValues?.deltaV!))
+    .attr('cy', (d) => y(d.drive.selectedOptionValues?.accel!))
     .attr('r', 5)
-    .attr('title', (d) => d.drives[0].dataName!)
+    .attr('title', (d) => d.drive.dataName!)
     .style('fill', (d) => driveTypeColor(d.powerPlant?.powerPlantClass!))
+
+
+  // Draw labels
+  
+  d3.select('#d3AccDvG')
+    .selectAll('text')
+    .data(data)
+    .join('text')
+    .attr('x', (d) => x(d.drive.selectedOptionValues?.deltaV!))
+    .attr('y', (d) => y(d.drive.selectedOptionValues?.accel!) + 15)
+    .attr('font-size', 10)
+    .text((d) => d.drive.friendlyName)
 }
 
 // Interactivity
@@ -89,6 +112,12 @@ watch(() => props.data, (newData) => {
 svg {
   max-width: 100%;
   height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  svg {
+    fill: white;
+  }
 }
 
 </style>

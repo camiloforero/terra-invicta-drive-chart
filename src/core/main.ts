@@ -11,7 +11,7 @@ interface Component {
   friendlyName: string
 }
 
-interface Drive extends Component {
+export interface Drive extends Component {
   dataName: string
   driveClassification: string
   thrust_N: number
@@ -33,7 +33,7 @@ interface Drive extends Component {
   selectedOptionValues?: DerivedOptionsValues
 }
 
-interface PowerPlant extends Component {
+export interface PowerPlant extends Component {
   powerPlantClass: string
   efficiency: number
   specificPower_tGW: number
@@ -41,6 +41,7 @@ interface PowerPlant extends Component {
 
 export interface DrivePowerPlantPairing {
   drives: Drive[]
+  drive: Drive
   powerPlant: PowerPlant
 }
 
