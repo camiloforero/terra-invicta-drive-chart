@@ -11,7 +11,7 @@ const options = reactive({
   numFuelTanks: 10,
   payload: 2000,
   radiatorName: "TinDroplet",
-  spiker: null,
+  spikerName: null,
   hydrogen: null,
   defaultPowerPlantName: 'SolidCoreFissionReactorVIII'
 })
@@ -78,7 +78,7 @@ const processedData = computed(() => {
         </select>
       </label>
       <label>Spiker
-        <select v-model="options.spiker">
+        <select v-model="options.spikerName">
           <option v-for="[key, spiker] of Object.entries(spikerDict)" :key="key" :value="key">{{ spiker.friendlyName }}</option>
           <option :value="null">None</option>
         </select>

@@ -48,6 +48,8 @@ interface ShipHull extends Component {
 interface UtilityModule extends Component {
   thrustMultiplier: number
   EVMultiplier: number
+  requiresNuclearDrive: boolean | null
+  requiresFusionDrive: boolean | null
 }
 
 export interface DrivesPowerPlantPairing {
@@ -88,7 +90,7 @@ interface OptionsObject {
   numFuelTanks: number
   defaultPowerPlantName: string
   hydrogen: string | null
-  spiker: string | null
+  spikerName: string | null
 }
 
 // Raw imported JSON data for a game version. Keep it in-memory so later recalculations are more efficient
@@ -137,7 +139,7 @@ export async function loadDataFromVersion(version: string) {
 }
 
 // Return calculated data for a given set of options
-export function getDataForOptions({ payload, radiatorName, numFuelTanks, defaultPowerPlantName, hydrogen, spiker }: OptionsObject) {
+export function getDataForOptions({ payload, radiatorName, numFuelTanks, defaultPowerPlantName, hydrogen, spikerName }: OptionsObject) {
   // First use the provided default power plant to process the drives that don't require an specific one
   const defaultPowerPlant = findByDataName(rawPowerPlantData, defaultPowerPlantName)!
 
@@ -161,7 +163,10 @@ export function getDataForOptions({ payload, radiatorName, numFuelTanks, default
       // The goods!
       const hydrogenMultiplier = (hydrogen && drive.propellant == "Hydrogen") ? hydrogenModuleDict[hydrogen].EVMultiplier : 1
       const deltaV = hydrogenMultiplier * drive.EV_kps * Math.log(wetMass/dryMass)
-      const accel = (drive.thrust_N * drive.thrustCap / wetMass) / 9.81
+
+      const spiker = spikerName && spikerDict[spikerName]
+      const spikerMultiplier = (spiker && isCompatibleWithSpiker(drive, spiker)) ? spiker.thrustMultiplier : 1
+      const accel = spikerMultiplier * (drive.thrust_N * drive.thrustCap / wetMass) / 9.81
       return {
         ...drive,
         selectedOptionValues: {
@@ -274,4 +279,13 @@ function deriveValuesInDrivesForPowerPlant(drives: Drive[], powerPlant: PowerPla
 
 function findByDataName<T extends Component>(componentArray: T[], dataName: string) {
   return componentArray.find((c) => c.dataName == dataName)
+}
+
+function isCompatibleWithSpiker(drive: Drive, spiker: UtilityModule) {
+  const FUSION_DRIVES = ['Fusion_Thermal']
+  const NUCLEAR_DRIVES = ['Fission_Thermal', 'Fusion_Thermal']
+  return (
+    (spiker.requiresNuclearDrive && NUCLEAR_DRIVES.includes(drive.driveClassification)) ||
+    (spiker.requiresFusionDrive && FUSION_DRIVES.includes(drive.driveClassification))
+  )
 }
