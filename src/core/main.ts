@@ -9,6 +9,7 @@ interface MaterialCostSet {
 interface Component {
   dataName: string
   friendlyName: string
+  requiredProjectName: string // Not all components have this, but enough do
 }
 
 export interface Drive extends Component {
@@ -39,17 +40,29 @@ export interface PowerPlant extends Component {
   specificPower_tGW: number
 }
 
-export interface DrivePowerPlantPairing {
+interface ShipHull extends Component {
+  mass_tons: number
+  alien: boolean
+}
+
+interface UtilityModule extends Component {
+  thrustMultiplier: number
+  EVMultiplier: number
+}
+
+export interface DrivesPowerPlantPairing {
   drives: Drive[]
+  powerPlant: PowerPlant
+}
+export interface DrivePowerPlantPairing {
   drive: Drive
   powerPlant: PowerPlant
 }
 
-interface Radiator {
-  dataName: string
-  friendlyName: string
+interface Radiator extends Component {
   specificPower_2s_KWkg: number
   crew: number
+  radiatorType: string
 }
 
 interface DerivedDrivePowerPlantValues {
@@ -82,16 +95,26 @@ interface OptionsObject {
 let rawDriveData: Drive[]
 let rawPowerPlantData: PowerPlant[]
 let rawRadiatorData: Radiator[]
+let rawUtilityModuleData: UtilityModule[]
+let rawShipHullData: ShipHull[]
 
 // Preprocessed data
 // Drives that have a "best" power plant, selectable in the preprocessing step
-let processedDrivePowerPlantData: DrivePowerPlantPairing[]
+let processedDrivePowerPlantData: DrivesPowerPlantPairing[]
 // Drives that can be paired with any power plant, which must be specified by the user
-let reactorlessDriveData: DrivePowerPlantPairing[]
-let processedReactorlessDrives: DrivePowerPlantPairing[]
+let reactorlessDriveData: DrivesPowerPlantPairing[]
+let processedReactorlessDrives: DrivesPowerPlantPairing[]
 // Best power plants per type
 let bestPowerPlants: BestPowerPlantsDict
-let radiatorDict: {[key: string]: Radiator}
+
+// Components
+export let radiatorDict: {[key: string]: Radiator}
+export let shipHullDict: {[key: string]: ShipHull}
+export let hydrogenModuleDict: {[key: string]: UtilityModule}
+export let spikerDict: {[key: string]: UtilityModule}
+// Hydrogen components
+
+
 // Partially processed data for relevant drive/power plant pairings.
 // As much as can be done without accounting for radiators and modules
 
@@ -101,10 +124,12 @@ let radiatorDict: {[key: string]: Radiator}
 
 // Import the raw data for the wanted version from the game's JSON files
 export async function loadDataFromVersion(version: string) {
-  [rawDriveData, rawPowerPlantData, rawRadiatorData] = await Promise.all([
+  [rawDriveData, rawPowerPlantData, rawRadiatorData, rawUtilityModuleData, rawShipHullData] = await Promise.all([
     (await fetch(`/versions/${version}/TIDriveTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIPowerPlantTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIRadiatorTemplate.json`)).json(),
+    (await fetch(`/versions/${version}/TIUtilityModuleTemplate.json`)).json(),
+    (await fetch(`/versions/${version}/TIShipHullTemplate.json`)).json(),
   ])
 
   // Preprocess that data as much as feasible
@@ -134,7 +159,8 @@ export function getDataForOptions({ payload, radiatorName, numFuelTanks, default
 
       // TODO: extra calculations for the different kinds of hydrogen storage and spikers
       // The goods!
-      const deltaV = drive.EV_kps * Math.log(wetMass/dryMass)
+      const hydrogenMultiplier = (hydrogen && drive.propellant == "Hydrogen") ? hydrogenModuleDict[hydrogen].EVMultiplier : 1
+      const deltaV = hydrogenMultiplier * drive.EV_kps * Math.log(wetMass/dryMass)
       const accel = (drive.thrust_N * drive.thrustCap / wetMass) / 9.81
       return {
         ...drive,
@@ -161,12 +187,20 @@ function preprocess() {
   // Removes the last two characters of each drive (the multiplier) and groups them by the raw value
   const normalizedDrives = groupBy(rawDriveData, (drive) => drive.dataName.slice(0, -2))
 
-  // Turn radiator array into hash
-  radiatorDict = keyBy(rawRadiatorData, 'dataName')
+  // Turn component arrays into hashes
+  // Alien radiator types are recognized by their radiatorType property
+  radiatorDict = keyBy(rawRadiatorData.filter((r) => r.requiredProjectName != "Project_AlienMasterProject"), 'dataName')
+  // Alien hulls are recognized by their alien property
+  shipHullDict = keyBy(rawShipHullData.filter((r) => !r.alien), 'dataName')
+  
+  // From the utility modules list, get the hydrogen containers and the spikers
+  const groupedUtilityModules = groupBy(rawUtilityModuleData, 'grouping')
+  hydrogenModuleDict = keyBy(groupedUtilityModules[4].filter((r) => r.requiredProjectName != "Project_AlienMasterProject"), 'dataName')
+  spikerDict = keyBy(groupedUtilityModules[3].filter((r) => r.requiredProjectName != "Project_AlienMasterProject"), 'dataName')
 
   // Pair every reactor group with its best drive
-  const drivesWithReactor = <DrivePowerPlantPairing[]>[]
-  const drivesWithoutReactor = <DrivePowerPlantPairing[]>[]
+  const drivesWithReactor = <DrivesPowerPlantPairing[]>[]
+  const drivesWithoutReactor = <DrivesPowerPlantPairing[]>[]
   Object.entries(normalizedDrives).forEach(([_, drives]) => {
     const powerPlant = bestPowerPlants[drives[0].requiredPowerPlant]
     if (powerPlant) {

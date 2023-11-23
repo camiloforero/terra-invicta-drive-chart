@@ -30,8 +30,8 @@ const props = defineProps<{
 }>()
 
 // constants
-const WIDTH = 900
-const HEIGHT = 700
+const WIDTH = 1280
+const HEIGHT = 600
 const MARGIN_TOP = 25;
 const MARGIN_RIGHT = 20;
 const MARGIN_BOTTOM = 35;
@@ -84,7 +84,7 @@ function render(data: Pairing[]) {
     .attr('cy', (d) => y(d.drive.selectedOptionValues?.accel!))
     .attr('r', 5)
     .attr('title', (d) => d.drive.dataName!)
-    .style('fill', (d) => driveTypeColor(d.powerPlant?.powerPlantClass!))
+    .style('fill', (d) => driveTypeColor(d.drive.driveClassification + d.drive.requiredPowerPlant))
 
 
   // Draw labels
