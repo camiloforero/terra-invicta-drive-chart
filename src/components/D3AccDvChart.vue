@@ -70,6 +70,15 @@ onMounted(() => {
     .attr('transform', `translate(${START_X},0)`)
     .call(d3.axisLeft(y));
   render(props.data)
+
+  // Add 4G line
+  const fourG = y(4000)
+  svg.append('line')
+    .attr('x1', START_X)
+    .attr('x2', END_X)
+    .attr('y1', fourG)
+    .attr('y2', fourG)
+    .attr('stroke', 'red')
 })
 
 
@@ -80,6 +89,7 @@ function render(data: Pairing[]) {
     .selectAll('circle')
     .data(data)
     .join('circle')
+    .transition()
     .attr('cx', (d) => x(d.drive.selectedOptionValues?.deltaV!))
     .attr('cy', (d) => y(d.drive.selectedOptionValues?.accel!))
     .attr('r', 5)
@@ -93,10 +103,12 @@ function render(data: Pairing[]) {
     .selectAll('text')
     .data(data)
     .join('text')
+    .transition()
     .attr('x', (d) => x(d.drive.selectedOptionValues?.deltaV!))
     .attr('y', (d) => y(d.drive.selectedOptionValues?.accel!) + 15)
     .attr('font-size', 10)
     .text((d) => d.drive.friendlyName)
+    .style('text-anchor', 'middle')
 }
 
 // Interactivity
