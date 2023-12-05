@@ -1,11 +1,11 @@
 <template>
+  <div id="svgContainer" />
   <svg
     id="d3AccDvSvg"
     :width="WIDTH"
     :height="HEIGHT"
     :viewBox="[0, 0, WIDTH, HEIGHT].toString()"
     >
-    <g id="d3AccDvG"></g>
   </svg>
 </template>
 
@@ -42,81 +42,107 @@ const END_X = WIDTH - MARGIN_RIGHT
 const START_Y = HEIGHT - MARGIN_BOTTOM
 const END_Y = MARGIN_TOP
 
-
-// Deal with dark mode
-const mode =matchMedia("(prefers-color-scheme: dark)")
-
-// Create the scales
-const x = d3.scaleLog()
-  .domain([0.1, 5 * 1e4])
-  .range([START_X, END_X])
-
-const y = d3.scaleLog()
-  .domain([0.05, 1e5])
-  .range([START_Y, END_Y])
-
-//scale for colors per drive type
-const driveTypeColor = d3.scaleOrdinal(d3.schemeSet3)
-
 onMounted(() => {
+  // Create the scales
+  const x = d3.scaleLog()
+    .domain([0.1, 5 * 1e4])
+    .range([START_X, END_X])
+
+  const y = d3.scaleLog()
+    .domain([0.05, 1e5])
+    .range([START_Y, END_Y])
+
+  //scale for colors per drive type
+  const driveTypeColor = d3.scaleOrdinal(d3.schemeSet3)
+
   // Create the SVG container
   const svg = d3.select('#d3AccDvSvg')
   // Create and append the axes
-  svg.append('g')
+  const gx = svg.append('g')
     .attr('transform', `translate(0,${START_Y})`)
     .call(d3.axisBottom(x));
 
-  svg.append('g')
+  const gy = svg.append('g')
     .attr('transform', `translate(${START_X},0)`)
     .call(d3.axisLeft(y));
-  render(props.data)
 
   // Add 4G line
-  const fourG = y(4000)
-  svg.append('line')
+  const lineFourG = svg.append('line')
     .attr('x1', START_X)
     .attr('x2', END_X)
-    .attr('y1', fourG)
-    .attr('y2', fourG)
+    .attr('y1', y(4000))
+    .attr('y2', y(4000))
     .attr('stroke', 'red')
-})
 
-
-
-function render(data: Pairing[]) {
-  const dataPoints = 
-  d3.select('#d3AccDvG')
-    .selectAll('circle')
-    .data(data)
-    .join('circle')
-    .transition()
-    .attr('cx', (d) => x(d.drive.selectedOptionValues?.deltaV!))
-    .attr('cy', (d) => y(d.drive.selectedOptionValues?.accel!))
-    .attr('r', 5)
-    .attr('title', (d) => d.drive.dataName!)
-    .style('fill', (d) => driveTypeColor(d.drive.driveClassification + d.drive.requiredPowerPlant))
-
-
-  // Draw labels
-  
-  d3.select('#d3AccDvG')
-    .selectAll('text')
-    .data(data)
-    .join('text')
-    .transition()
-    .attr('x', (d) => x(d.drive.selectedOptionValues?.deltaV!))
-    .attr('y', (d) => y(d.drive.selectedOptionValues?.accel!) + 15)
+  // Data points
+  const gDataPoints = svg.append('g')
     .attr('font-size', 10)
-    .text((d) => d.drive.friendlyName)
     .style('text-anchor', 'middle')
-}
 
-// Interactivity
-// Using a small trick to make props reactive
-watch(() => props.data, (newData) => {
-  render(newData)
-  console.log(newData)
+  
+  const zoom = d3.zoom()
+    .scaleExtent([0.5, 32])
+    .on("zoom", zoomed);
+  
+  svg.call(zoom).call(zoom.transform, d3.zoomIdentity);
+
+  renderDataPoints(props.data)
+
+
+  // Interactivity
+  // Using a small trick to make props reactive
+  watch(() => props.data, (newData) => {
+    renderDataPoints(newData)
+    console.log(newData)
+  })
+
+  // Function for rendering and re-rendering data points
+  function renderDataPoints(data: Pairing[]) {
+    gDataPoints
+      .selectAll('circle')
+      .data(data)
+      .join('circle')
+      .transition()
+      .attr('cx', (d) => x(d.drive.selectedOptionValues?.deltaV!))
+      .attr('cy', (d) => y(d.drive.selectedOptionValues?.accel!))
+      .attr('r', 5)
+      .attr('title', (d) => d.drive.dataName!)
+      .style('fill', (d) => driveTypeColor(d.drive.driveClassification + d.drive.requiredPowerPlant))
+
+    // Draw labels
+    
+    gDataPoints
+      .selectAll('text')
+      .data(data)
+      .join('text')
+      .transition()
+      .attr('x', (d) => x(d.drive.selectedOptionValues?.deltaV!))
+      .attr('y', (d) => y(d.drive.selectedOptionValues?.accel!) + 12)
+      .text((d) => d.drive.friendlyName)
+  }
+
+  function zoomed({transform}) {
+    const zx = transform.rescaleX(x).interpolate(d3.interpolateRound);
+    const zy = transform.rescaleY(y).interpolate(d3.interpolateRound);
+    gDataPoints
+      .attr("transform", transform)
+      .attr('font-size', 10 / Math.sqrt(transform.k));
+    gDataPoints
+      .selectAll('circle')
+      .attr('r', 5 / Math.sqrt(transform.k));
+    lineFourG.attr("transform", transform) // .attr("stroke-width", 5 / transform.k);
+    gx.call(xAxis, zx);
+    gy.call(yAxis, zy);
+  }
 })
+
+const xAxis = (g, x) => g
+    .attr("transform", `translate(0,${START_Y})`)
+    .call(d3.axisTop(x))
+
+const yAxis = (g, y) => g
+  .attr('transform', `translate(${START_X},0)`)
+  .call(d3.axisRight(y))
 
 </script>
 
