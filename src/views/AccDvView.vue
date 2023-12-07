@@ -4,7 +4,9 @@ import { ref, reactive, watch, computed } from "vue"
 import { loadDataFromVersion, getDataForOptions, radiatorDict, shipHullDict, hydrogenModuleDict, spikerDict, shipArmorDict } from '@/core/main'
 import D3AccDvChart from "@/components/D3AccDvChart.vue";
 
-await loadDataFromVersion('0.3.115')
+const GAME_VERSION = '0.3.115'
+
+await loadDataFromVersion(GAME_VERSION)
 
 // Options that affect the final calculation
 const options = reactive({
@@ -68,52 +70,52 @@ const armorWeightPerUnitSide = computed(() => shipSideArmorArea.value * selected
 </script>
 
 <template>
+  <h1>Terra Invicta Drive Efficiency Explorer</h1>
   <main>
     <div>
-      <h1>Terra Invicta Drive Efficiency Explorer</h1>
       <D3AccDvChart :data="processedData"/>
     </div>
-    <div id="optionsSidebar">
-      <label>Hull
-        <select v-model="options.shipHullName">
-          <option v-for="[key, hull] of Object.entries(shipHullDict)" :key="key" :value="key">{{ hull.friendlyName }}</option>
-        </select>
-      </label>
-      <label>Armor
-        <select v-model="options.shipArmorName">
-          <option v-for="[key, armor] of Object.entries(shipArmorDict)" :key="key" :value="key">{{ armor.friendlyName }}</option>
-        </select>
-      </label>
-      <div>
-        <h3>Armor values</h3>
-        <div id="armor-values-selector">
-          <label>Nose
-            <input type="number" v-model="options.shipArmorValues.nose" min="1"/>
+    <div id="options-sidebar">
+      Version: {{ GAME_VERSION }}
+      <div id="weight-section">
+        <label>Hull
+          <select v-model="options.shipHullName">
+            <option v-for="[key, hull] of Object.entries(shipHullDict)" :key="key" :value="key">{{ hull.friendlyName }}</option>
+          </select>
+        </label>
+        <div>{{ data.fixedMassValues.hullMass }}t</div>
+        <div id="armor-subsection">
+          <label>Armor
+            <select v-model="options.shipArmorName">
+              <option v-for="[key, armor] of Object.entries(shipArmorDict)" :key="key" :value="key">{{ armor.friendlyName }}</option>
+            </select>
           </label>
-          <label>Sides
-            <input type="number" v-model="options.shipArmorValues.sides" min="1"/>
-          </label>
-          <label>Tail
-            <input type="number" v-model="options.shipArmorValues.tail" min="1"/>
+          <div id="armor-values-selector" class="weight-section-item">
+            <label>Nose
+              <input class="armor-input" type="number" v-model="options.shipArmorValues.nose" min="1"/>
+            </label>
+            <label>Sides
+              <input class="armor-input" type="number" v-model="options.shipArmorValues.sides" min="1"/>
+            </label>
+            <label>Tail
+              <input class="armor-input" type="number" v-model="options.shipArmorValues.tail" min="1"/>
+            </label>
+          </div>
+        </div>
+        <div>{{ data.fixedMassValues.armorMass.toFixed(0) }}t</div>
+        <label>Fuel tanks
+          <input type="number" v-model="options.numFuelTanks" min="1"/>
+        </label>
+        <div>{{ data.fixedMassValues.fuelMass }}t</div>
+        <div>
+          <label>Payload
+            <input type="number" v-model="options.payload" min="0" step="100"/>
           </label>
         </div>
-      </div>
-      <label>Fuel tanks
-        <input type="number" v-model="options.numFuelTanks" min="1"/>
-      </label>
-      <div>
-        <h3>Weight values</h3>
-        Hull mass: {{ data.fixedMassValues.hullMass }}
-        <br/>
-        Armor mass: {{ data.fixedMassValues.armorMass }}
-        <br/>
-        Fuel mass: {{ data.fixedMassValues.fuelMass }}
-        <br/>
-        <label>Payload
-          <input type="number" v-model="options.payload" step="100"/>
-        </label>
-        <br/>
-        Total mass: {{ data.fixedMassValues.hullMass + data.fixedMassValues.armorMass + data.fixedMassValues.fuelMass + options.payload }}
+        <div>
+
+          <strong>{{ (data.fixedMassValues.hullMass + data.fixedMassValues.armorMass + data.fixedMassValues.fuelMass + options.payload).toFixed(0) }}t</strong>
+        </div>
       </div>
       <label>Drive count
         <input type="number" v-model="driveCount" min="1" max="6"/>
@@ -148,7 +150,7 @@ main {
   flex-direction: row;
 }
 
-#optionsSidebar {
+#options-sidebar {
   display: flex;
   flex-direction: column;
 }
@@ -156,6 +158,29 @@ main {
 #armor-values-selector {
   display: flex;
   flex-direction: row;
+  max-width: 150px;
+}
+
+#weight-section {
+  display: grid;
+  justify-items: center;
+  grid-template-columns: 2fr 1fr;
+}
+
+#armor-subsection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.armor-input {
+  max-width: 50px
+}
+
+.weight-section-item {
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 </style>
 
