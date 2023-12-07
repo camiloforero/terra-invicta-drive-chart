@@ -34,6 +34,24 @@ export interface Drive extends Component {
   selectedOptionValues?: DerivedOptionsValues
 }
 
+interface DerivedOptionsValues {
+  radiatorMass: number
+  dryMass: number
+  wetMass: number
+  deltaV: number
+  accel: number
+}
+
+// These values are independent of the drive/power plant pairings
+interface FixedMassValues {
+  fuelMass: number
+  hullMass: number
+  armorMass: number
+  sideArmorMass: number
+  noseArmorMass: number
+
+}
+
 export interface PowerPlant extends Component {
   powerPlantClass: string
   efficiency: number
@@ -43,6 +61,22 @@ export interface PowerPlant extends Component {
 interface ShipHull extends Component {
   mass_tons: number
   alien: boolean
+  width_m: number
+  length_m: number
+}
+
+interface ProcessedShipHull extends ShipHull {
+  sideEffectiveAreaM3: number
+  noseTailEffectiveAreaM3: number
+}
+
+interface ShipArmor extends Component {
+  density_kgm3: number
+  heatofVaporization_MJkg: number
+}
+
+interface ProcessedShipArmor extends ShipArmor {
+  massTonsPerM2: number
 }
 
 interface UtilityModule extends Component {
@@ -71,14 +105,6 @@ interface DerivedDrivePowerPlantValues {
   powerPlantMass: number
   wasteHeat: number
 }
-interface DerivedOptionsValues {
-  radiatorMass: number
-  dryMass: number
-  fuelMass: number
-  wetMass: number
-  deltaV: number
-  accel: number
-}
 
 interface BestPowerPlantsDict {
   [key: string]: PowerPlant
@@ -91,6 +117,13 @@ interface OptionsObject {
   defaultPowerPlantName: string
   hydrogen: string | null
   spikerName: string | null
+  shipHullName: string
+  shipArmorName: string
+  shipArmorValues: {
+    nose: number
+    sides: number
+    tail: number
+  }
 }
 
 // Raw imported JSON data for a game version. Keep it in-memory so later recalculations are more efficient
@@ -99,6 +132,7 @@ let rawPowerPlantData: PowerPlant[]
 let rawRadiatorData: Radiator[]
 let rawUtilityModuleData: UtilityModule[]
 let rawShipHullData: ShipHull[]
+let rawShipArmorData: ShipArmor[]
 
 // Preprocessed data
 // Drives that have a "best" power plant, selectable in the preprocessing step
@@ -111,14 +145,13 @@ let bestPowerPlants: BestPowerPlantsDict
 
 // Components
 export let radiatorDict: {[key: string]: Radiator}
-export let shipHullDict: {[key: string]: ShipHull}
 export let hydrogenModuleDict: {[key: string]: UtilityModule}
 export let spikerDict: {[key: string]: UtilityModule}
 // Hydrogen components
 
-
-// Partially processed data for relevant drive/power plant pairings.
-// As much as can be done without accounting for radiators and modules
+// Weight-calculation components
+export let shipHullDict: {[key: string]: ProcessedShipHull}
+export let shipArmorDict: {[key: string]: ProcessedShipArmor}
 
 //
 // Core exportable functions
@@ -126,20 +159,22 @@ export let spikerDict: {[key: string]: UtilityModule}
 
 // Import the raw data for the wanted version from the game's JSON files
 export async function loadDataFromVersion(version: string) {
-  [rawDriveData, rawPowerPlantData, rawRadiatorData, rawUtilityModuleData, rawShipHullData] = await Promise.all([
+  [rawDriveData, rawPowerPlantData, rawRadiatorData, rawUtilityModuleData, rawShipHullData, rawShipArmorData] = await Promise.all([
     (await fetch(`/versions/${version}/TIDriveTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIPowerPlantTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIRadiatorTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIUtilityModuleTemplate.json`)).json(),
     (await fetch(`/versions/${version}/TIShipHullTemplate.json`)).json(),
+    (await fetch(`/versions/${version}/TIShipArmorTemplate.json`)).json(),
   ])
 
   // Preprocess that data as much as feasible
-  preprocess()
+  preprocessDrives()
+  preprocessDryMass()
 }
 
 // Return calculated data for a given set of options
-export function getDataForOptions({ payload, radiatorName, numFuelTanks, defaultPowerPlantName, hydrogen, spikerName }: OptionsObject) {
+export function getDataForOptions({ payload, radiatorName, numFuelTanks, defaultPowerPlantName, hydrogen, spikerName, shipHullName, shipArmorName, shipArmorValues }: OptionsObject) {
   // First use the provided default power plant to process the drives that don't require an specific one
   const defaultPowerPlant = findByDataName(rawPowerPlantData, defaultPowerPlantName)!
 
@@ -150,13 +185,30 @@ export function getDataForOptions({ payload, radiatorName, numFuelTanks, default
 
   const radiator = radiatorDict[radiatorName]
   const tonsPerWasteHeat = 1e3 / radiator.specificPower_2s_KWkg
-  return [...processedDrivePowerPlantData, ...processedReactorlessDrives].map((pairing) => {
+
+  // Process mass values for armor and hull
+  const selectedShipHull = shipHullDict[shipHullName]
+  const hullMass = selectedShipHull.mass_tons
+  // Calculate total armor weight
+  const selectedShipArmor = shipArmorDict[shipArmorName]
+  const noseArmorMass = selectedShipArmor.massTonsPerM2 * selectedShipHull.noseTailEffectiveAreaM3 * shipArmorValues.nose / 1000
+  const sidesArmorMass = selectedShipArmor.massTonsPerM2 * selectedShipHull.sideEffectiveAreaM3 * shipArmorValues.sides / 1000
+  const tailArmorMass = selectedShipArmor.massTonsPerM2 * selectedShipHull.noseTailEffectiveAreaM3 * shipArmorValues.tail / 1000
+  const armorMass = noseArmorMass + sidesArmorMass + tailArmorMass
+  const fuelMass = numFuelTanks * 100
+
+  const drivePowerPlantPairings = [...processedDrivePowerPlantData, ...processedReactorlessDrives].map((pairing) => {
     const drives = pairing.drives.map((drive) => {
       if (drive.powerPlantValues == null) return drive
       
       const radiatorMass = drive.powerPlantValues!.wasteHeat * tonsPerWasteHeat * (1/1e9)
-      const dryMass = drive.totalMass! + drive.powerPlantValues!.powerPlantMass + radiatorMass + payload
-      const fuelMass = numFuelTanks * 100
+      const dryMass =
+        drive.totalMass! +
+        drive.powerPlantValues!.powerPlantMass +
+        radiatorMass +
+        hullMass +
+        armorMass +
+        payload
       const wetMass = dryMass + fuelMass
 
       // TODO: extra calculations for the different kinds of hydrogen storage and spikers
@@ -181,22 +233,33 @@ export function getDataForOptions({ payload, radiatorName, numFuelTanks, default
     })
     return { ...pairing, drives }
   })
+  return {
+    drivePowerPlantPairings,
+    fixedMassValues: {
+      hullMass,
+      armorMass,
+      fuelMass,
+      sidesArmorMass,
+      noseArmorMass,
+      tailArmorMass
+    }
+  }
 }
 
 
 //
 // Helper functions
 //
-function preprocess() {
+
+// Preprocess drive-related data
+function preprocessDrives() {
   bestPowerPlants = filterBestPowerPlants(rawPowerPlantData);
   // Removes the last two characters of each drive (the multiplier) and groups them by the raw value
   const normalizedDrives = groupBy(rawDriveData, (drive) => drive.dataName.slice(0, -2))
 
   // Turn component arrays into hashes
-  // Alien radiator types are recognized by their radiatorType property
+  // Alien radiators and armors are recognized by their radiatorType property
   radiatorDict = keyBy(rawRadiatorData.filter((r) => r.requiredProjectName != "Project_AlienMasterProject"), 'dataName')
-  // Alien hulls are recognized by their alien property
-  shipHullDict = keyBy(rawShipHullData.filter((r) => !r.alien), 'dataName')
   
   // From the utility modules list, get the hydrogen containers and the spikers
   const groupedUtilityModules = groupBy(rawUtilityModuleData, 'grouping')
@@ -220,6 +283,34 @@ function preprocess() {
   })
   processedDrivePowerPlantData = drivesWithReactor
   reactorlessDriveData = drivesWithoutReactor
+}
+
+
+// Preprocess dry-mass calculation related data
+function preprocessDryMass() {
+
+  shipArmorDict = keyBy(
+    rawShipArmorData
+      .filter((a) => a.requiredProjectName != "Project_AlienMasterProject")
+      .map((a) => ({ 
+        ...a,
+        massTonsPerM2: 20 / a.heatofVaporization_MJkg / 0.005
+      })),
+    'dataName'
+  )
+  shipHullDict = keyBy(
+    rawShipHullData
+      // Alien hulls are recognized and filtered out by their alien property
+      .filter((h) => !h.alien)
+      // Calculates ship hull sides, nose and tail area, using a cylinder formula
+      // Side area is halved as an abstraction for thinner and unarmored sections
+      .map((h) => ({ 
+        ...h,
+        sideEffectiveAreaM3: Math.PI * h.width_m * h.length_m / 2,
+        noseTailEffectiveAreaM3: Math.PI * (h.width_m / 2.0) ** 2
+      })),
+    'dataName'
+  )
 }
 
 function filterBestPowerPlants(rawPowerPlantData: PowerPlant[]) {
